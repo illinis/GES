@@ -70,14 +70,38 @@ type qualifiers
 	: can be used interchangeably as arguments to functions, return values from functions, and structure and union members.
 
 	: const
-		: 
+		: not assignable but can have constant initializers.
+		: the compiler can place objects with const-qualified type in read-only memory, and any attempt to write to them will result in a runtime error.
+		: it is possible to change const-qualified objects using pointers.
+		: C allows you to modify an object that is referenced by a const-qualified pointer by casting the const away.
+		: be careful not to pass a const-qualified pointer to a function that modifies the object.
+		
 	: volatile
-		:
+		: volatile-qualified type allow for processes that are extrinsic to the compiler.
+		: the values stored in these objects may change without the knowledge of the compiler, or a write may synchronize externally.
+		
 	: restrict
+		: is used to promote optimization.
+		: promotes optimization by assuring to the compiler that two pointers (alias) doesn't interfere with each other.
+		: aliasing hurts optimization because in situations where two pointers may alias, the compiler chooses to reload memory in order to not return the memory's old value.
+	
+scope
+	: delimits the contiguous region where they can be accessed.
+	
+	file
+		:
+		
+	block
+		:
+		
+	function prototype
+		:
+		
+	function
 		:
 	
-stopped at page 32/314
-	
+stopped on page 34.	
+
 */
 
 #include <stdio.h>
