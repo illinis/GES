@@ -87,21 +87,82 @@ type qualifiers
 	
 scope
 	: delimits the contiguous region where they can be accessed.
+	: is determined by where it is declared.
 	
-	file
-		:
+	: file
+		: declaration is outside any block or parameter list.
+		: scope is the entire text file in which it appears as well as any included files.
 		
-	block
-		:
+	: block
+		: declaration is inside a block or within the list of parameters
 		
-	function prototype
-		:
+	: function prototype
+		: declaration appears within the list of parameter declarations in a function prototype
+		: terminates at end of the function declarator.
 		
-	function
-		:
-	
-stopped on page 34.	
+	: function
+		: declarations between the opening of a function definition and its closing.
 
+storage duration
+	: objects have a store duration that determines their lifetime.
+	: scope and lifetime are different concepts: scope applies to identifiers, whereas lifetime applies to objects.
+	
+	: automatic
+		: objects declared within a block or as a function parameter.
+		: ends when execution of the block completes.
+		: if the block is entered recursively, a new object is created each time the block is entered, and each has its own storage.
+		
+	: static
+		: objects declared in file scope have static storage duration.
+		: lifetime of those objects is the entire execution of the program, and their stored value is initialized prior to program startup.
+		
+	: thread
+		: used in concurrent programming
+	
+	: allocated
+		: involves dynamically allocated memory
+
+storage class specifiers
+	: static
+		: specify both storage duration and linkage
+		: file scope identifiers specified with 'static' or 'constexpr', or functions specified as static, have internal linkage
+		: declaring a variable with block scope to have static storage duration (using the storage-class specifier static) make it persist after the function has exited.
+		
+	: extern
+		: specifies static storage duration and external linkage.
+		: can be used with function and object declarations in both file and block scope.
+	
+	: thread_local
+		: gives thread storage duration when used in declaration.
+		: initialized is evaluated prior to the program execution.
+		: lifetime is the entire execution of the thread for which it is created.
+		: stored value is initialized with the previously determined value when the thread is started.
+		
+	: constexpr (C23)
+		: declares scalar objects as constants that has its value permanently fixed at translation time.
+		: may appear with 'auto', 'register' or 'static'
+		: static size_t const BFO = 0x100000000;
+		: constexpr size_t BFO = 0x100000000;
+		
+	: register
+		: suggest that access to an object be as fast as possible.
+		: can be used only for an object that never has its address taken.
+		
+	: typedef
+		: defines an identifier to be a typedef name that denotes the type specified for the identifier.
+		
+	: auto
+		: allowed only for objects declared at block scope, with exception to function parameter lists. (prior C23).
+		: indicates automatic storage duration and no linkage.
+		: after C23, when the declaration includes an initialized, the type can be derived directly from the type of the expression used to initialize the variable.
+		
+typeof operators
+	: honestly idgaf about these
+	
+alignment
+	: define the allowed adresses for the variable.
+	: CPUs can access aligned objects more efficiently, and on some architectures misaligned access is illegal.
+	
 */
 
 #include <stdio.h>
