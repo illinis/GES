@@ -2,7 +2,145 @@
 
 #include <stdint.h>
 #include <stdlib.h>
-#include <string.h>
+
+static size_t str_raw_length(const char *s)
+{
+    size_t length = 0;
+
+    while (s[length] != '\0') {
+        ++length;
+    }
+    return length;
+}
+
+static int str_raw_compare(const char *a, const char *b)
+{
+    size_t i = 0;
+
+    while (a[i] != '\0' && a[i] == b[i]) {
+        ++i;
+    }
+    return (unsigned char)a[i] - (unsigned char)b[i];
+}
+
+static void *str_raw_copy(void *dest, const void *src, size_t n)
+{
+    unsigned char *d = dest;
+    const unsigned char *s = src;
+    size_t i;
+
+    for (i = 0; i < n; ++i) {
+        d[i] = s[i];
+    }
+    return dest;
+}
+
+static void *str_raw_move(void *dest, const void *src, size_t n)
+{
+    unsigned char *d = dest;
+    const unsigned char *s = src;
+    size_t i;
+
+    if (d == s || n == 0) {
+        return dest;
+    }
+
+    if (d < s) {
+        for (i = 0; i < n; ++i) {
+            d[i] = s[i];
+        }
+    } else {
+        for (i = n; i > 0; --i) {
+            d[i - 1] = s[i - 1];
+        }
+    }
+    return dest;
+}
+
+static int str_raw_equal(const void *a, const void *b, size_t n)
+{
+    const unsigned char *pa = a;
+    const unsigned char *pb = b;
+    size_t i;
+
+    for (i = 0; i < n; ++i) {
+        if (pa[i] != pb[i]) {
+            return (int)pa[i] - (int)pb[i];
+        }
+    }
+    return 0;
+}
+
+static const char *str_raw_find_char(const char *s, char c)
+{
+    size_t i = 0;
+
+    while (s[i] != '\0') {
+        if (s[i] == c) {
+            return s + i;
+        }
+        ++i;
+    }
+    return c == '\0' ? s + i : NULL;
+}
+
+static size_t bm_search(const char *text, size_t text_length,
+                        const char *pattern, size_t pattern_length)
+{
+    size_t bad_char_skip[256];
+    size_t last;
+    size_t i;
+
+    if (pattern_length == 0) {
+        return 0;
+    }
+    if (pattern_length > text_length) {
+        return STR_NPOS;
+    }
+
+    last = pattern_length - 1;
+    for (i = 0; i < 256; ++i) {
+        bad_char_skip[i] = pattern_length;
+    }
+    for (i = 0; i < last; ++i) {
+        bad_char_skip[(unsigned char)pattern[i]] = last - i;
+    }
+
+    i = 0;
+    while (i <= text_length - pattern_length) {
+        size_t j = last;
+
+        while (text[i + j] == pattern[j]) {
+            if (j == 0) {
+                return i;
+            }
+            --j;
+        }
+        i += bad_char_skip[(unsigned char)text[i + last]];
+    }
+
+    return STR_NPOS;
+}
+
+static const char *str_raw_find_substring(const char *haystack,
+                                          const char *needle)
+{
+    size_t haystack_length;
+    size_t needle_length;
+    size_t position;
+
+    needle_length = str_raw_length(needle);
+    if (needle_length == 0) {
+        return haystack;
+    }
+
+    haystack_length = str_raw_length(haystack);
+    position = bm_search(haystack, haystack_length, needle, needle_length);
+    if (position == STR_NPOS) {
+        return NULL;
+    }
+    return haystack + position;
+}
 
 static int str_ensure_buffer(Str *str)
 {
@@ -142,13 +280,13 @@ int str_assign(Str *str, const char *source)
         return -1;
     }
 
-    source_length = strlen(source);
+    source_length = str_raw_length(source);
     if (source_length == SIZE_MAX) {
         return -1;
     }
 
     if (str_pointer_is_internal(str, source)) {
-        memmove(str->data, source, source_length + 1);
+        str_raw_move(str->data, source, source_length + 1);
         str->length = source_length;
         return 0;
     }
@@ -156,7 +294,7 @@ int str_assign(Str *str, const char *source)
     if (str_grow(str, source_length) != 0) {
         return -1;
     }
-    memcpy(str->data, source, source_length + 1);
+    str_raw_copy(str->data, source, source_length + 1);
     str->length = source_length;
     return 0;
 }
@@ -184,7 +322,7 @@ int str_insert(Str *str, size_t position, const char *text)
         return -1;
     }
 
-    text_length = strlen(text);
+    text_length = str_raw_length(text);
     if (text_length == 0) {
         return 0;
     }
@@ -197,7 +335,7 @@ int str_insert(Str *str, size_t position, const char *text)
         if (text_copy == NULL) {
             return -1;
         }
-        memcpy(text_copy, text, text_length + 1);
+        str_raw_copy(text_copy, text, text_length + 1);
         text = text_copy;
     }
 
@@ -207,10 +345,10 @@ int str_insert(Str *str, size_t position, const char *text)
         return -1;
     }
 
-    memmove(str->data + position + text_length,
-            str->data + position,
-            str->length - position + 1);
-    memcpy(str->data + position, text, text_length);
+    str_raw_move(str->data + position + text_length,
+                str->data + position,
+                str->length - position + 1);
+    str_raw_copy(str->data + position, text, text_length);
     str->length = new_length;
     free(text_copy);
     return 0;
@@ -265,9 +403,9 @@ int str_erase(Str *str, size_t position, size_t count)
         erased = str->length - position;
     }
 
-    memmove(str->data + position,
-            str->data + position + erased,
-            str->length - position - erased + 1);
+    str_raw_move(str->data + position,
+                str->data + position + erased,
+                str->length - position - erased + 1);
     str->length -= erased;
     return 0;
 }
@@ -289,14 +427,14 @@ int str_replace(Str *str, const char *old_substring,
         return -1;
     }
 
-    old_length = strlen(old_substring);
-    new_length = strlen(new_substring);
+    old_length = str_raw_length(old_substring);
+    new_length = str_raw_length(new_substring);
     if (old_length == 0) {
         return -1;
     }
 
     cursor = str->data;
-    while ((cursor = strstr(cursor, old_substring)) != NULL) {
+    while ((cursor = str_raw_find_substring(cursor, old_substring)) != NULL) {
         ++match_count;
         cursor += old_length;
     }
@@ -325,26 +463,26 @@ int str_replace(Str *str, const char *old_substring,
 
     cursor = str->data;
     for (;;) {
-        const char *match = strstr(cursor, old_substring);
+        const char *match = str_raw_find_substring(cursor, old_substring);
         size_t prefix_length;
 
         if (match == NULL) {
-            prefix_length = strlen(cursor);
-            memcpy(replacement + output_offset, cursor, prefix_length + 1);
+            prefix_length = str_raw_length(cursor);
+            str_raw_copy(replacement + output_offset, cursor, prefix_length + 1);
             output_offset += prefix_length;
             break;
         }
 
         prefix_length = (size_t)(match - cursor);
-        memcpy(replacement + output_offset, cursor, prefix_length);
+        str_raw_copy(replacement + output_offset, cursor, prefix_length);
         output_offset += prefix_length;
-        memcpy(replacement + output_offset, new_substring, new_length);
+        str_raw_copy(replacement + output_offset, new_substring, new_length);
         output_offset += new_length;
         cursor = match + old_length;
     }
 
     if (result_length <= str->capacity) {
-        memcpy(str->data, replacement, result_length + 1);
+        str_raw_copy(str->data, replacement, result_length + 1);
         free(replacement);
     } else {
         output = str->data;
@@ -367,7 +505,7 @@ int str_compare(const Str *str1, const Str *str2)
     if (str2 == NULL || str2->data == NULL) {
         return 1;
     }
-    return strcmp(str1->data, str2->data);
+    return str_raw_compare(str1->data, str2->data);
 }
 
 size_t str_find_from(const Str *str, const char *substring, size_t start)
@@ -379,7 +517,7 @@ size_t str_find_from(const Str *str, const char *substring, size_t start)
         return STR_NPOS;
     }
 
-    match = strstr(str->data + start, substring);
+    match = str_raw_find_substring(str->data + start, substring);
     if (match == NULL) {
         return STR_NPOS;
     }
@@ -399,7 +537,7 @@ size_t str_find_char(const Str *str, char c)
         return STR_NPOS;
     }
 
-    match = strchr(str->data, (unsigned char)c);
+    match = str_raw_find_char(str->data, c);
     if (match == NULL) {
         return STR_NPOS;
     }
@@ -424,7 +562,7 @@ int str_find_all(const Str *str, const char *substring, size_t **positions,
         return -1;
     }
 
-    substring_length = strlen(substring);
+    substring_length = str_raw_length(substring);
     if (substring_length == 0) {
         if (str->length == SIZE_MAX ||
             str->length + 1 > SIZE_MAX / sizeof(*matches)) {
@@ -433,7 +571,7 @@ int str_find_all(const Str *str, const char *substring, size_t **positions,
         count = str->length + 1;
     } else if (substring_length <= str->length) {
         for (index = 0; index <= str->length - substring_length; ++index) {
-            if (memcmp(str->data + index, substring, substring_length) == 0) {
+            if (str_raw_equal(str->data + index, substring, substring_length) == 0) {
                 ++count;
             }
         }
@@ -458,7 +596,7 @@ int str_find_all(const Str *str, const char *substring, size_t **positions,
         }
     } else {
         for (index = 0; index <= str->length - substring_length; ++index) {
-            if (memcmp(str->data + index, substring, substring_length) == 0) {
+            if (str_raw_equal(str->data + index, substring, substring_length) == 0) {
                 matches[count++] = index;
             }
         }
