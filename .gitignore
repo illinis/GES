@@ -1,0 +1,116 @@
+# --- C / C++ build artifacts ---
+*.o
+*.obj
+*.lo
+*.slo
+*.ko
+*.elf
+*.gch
+*.pch
+*.a
+*.la
+*.lai
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+a.out
+*.exp
+*.map
+*.i
+*.ii
+*.s
+*.su
+*.idb
+*.pdb
+*.ilk
+*.dSYM/
+
+# Static analyzers / sanitizers
+*.gcda
+*.gcno
+*.gcov
+core
+core.*
+vgcore.*
+
+# --- Build systems ---
+# Make
+*.d
+.deps/
+.libs/
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+install_manifest.txt
+CPackConfig.cmake
+CPackSourceConfig.cmake
+build/
+cmake-build-*/
+
+# Autotools
+autom4te.cache/
+config.log
+config.status
+Makefile.in
+aclocal.m4
+compile
+depcomp
+install-sh
+missing
+
+# Ninja
+.ninja_deps
+.ninja_log
+build.ninja
+
+# Common output dirs
+bin/
+obj/
+out/
+dist/
+
+# --- Game development ---
+# Asset import caches / engine-generated intermediates
+Library/
+Temp/
+Logs/
+UserSettings/
+*.psd.meta
+*.fbx.meta
+*.pak
+*.dat.cache
+
+# Shader / asset compilation caches
+*.spv
+shadercache/
+*.assetcache
+
+# Blender autosave/backups
+*.blend1
+*.blend2
+
+# --- Editors / IDEs ---
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.vs/
+*.swp
+*.swo
+*~
+
+# --- OS cruft ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- Misc / unrelated tooling ---
+node_modules/
