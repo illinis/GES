@@ -1,27 +1,38 @@
-# Builds and runs the validation suite (main.c) against every micro-project
-# living under this directory. Drop a new <name>/<name>.c (+ <name>.h) pair
-# in here and its sources are picked up automatically - no edits needed.
+# Builds the validation suite (main.c) and the usage reference (usage.c)
+# against every micro-project living under this directory. Drop a new
+# <name>/<name>.c (+ <name>.h) pair in here and its sources are picked up
+# automatically - no edits needed.
 
 CC      ?= cc
 CFLAGS  ?= -std=c99 -Wall -Wextra -Wconversion -g
 LDFLAGS ?=
 
-TARGET := mp_tests
+TEST_TARGET  := mp_tests
+USAGE_TARGET := mp_usage
 
 LIB_SRCS := $(wildcard */*.c)
-SRCS     := main.c $(LIB_SRCS)
-OBJS     := $(SRCS:.c=.o)
-DEPS     := $(OBJS:.o=.d)
+LIB_OBJS := $(LIB_SRCS:.c=.o)
 
-.PHONY: all run test clean
+TEST_OBJS  := main.o $(LIB_OBJS)
+USAGE_OBJS := usage.o $(LIB_OBJS)
 
-all: $(TARGET)
+DEPS := $(sort $(TEST_OBJS:.o=.d) $(USAGE_OBJS:.o=.d))
 
-run test: $(TARGET)
-	./$(TARGET)
+.PHONY: all run test demo usage clean
 
-$(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) -o $@
+all: $(TEST_TARGET) $(USAGE_TARGET)
+
+run test: $(TEST_TARGET)
+	./$(TEST_TARGET)
+
+demo usage: $(USAGE_TARGET)
+	./$(USAGE_TARGET)
+
+$(TEST_TARGET): $(TEST_OBJS)
+	$(CC) $(CFLAGS) $(TEST_OBJS) $(LDFLAGS) -o $@
+
+$(USAGE_TARGET): $(USAGE_OBJS)
+	$(CC) $(CFLAGS) $(USAGE_OBJS) $(LDFLAGS) -o $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -I. -MMD -MP -c $< -o $@
@@ -29,4 +40,4 @@ $(TARGET): $(OBJS)
 -include $(DEPS)
 
 clean:
-	rm -f $(OBJS) $(DEPS) $(TARGET)
+	rm -f $(TEST_OBJS) $(USAGE_OBJS) $(DEPS) $(TEST_TARGET) $(USAGE_TARGET)
