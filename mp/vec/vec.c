@@ -189,7 +189,35 @@ int vec_shrink_to_fit(Vec *vec)
     return 0;
 }
 
-int vec_copy(Vec *dest, const Vec *src)
+int vec_assign(Vec *vec, const void *data, size_t count)
+{
+    if (vec == NULL || vec->elem_size == 0 || (data == NULL && count != 0)) {
+        return -1;
+    }
+    if (count > SIZE_MAX / vec->elem_size) {
+        return -1;
+    }
+    if (count == 0) {
+        vec->length = 0;
+        return 0;
+    }
+
+    if (vec_pointer_is_internal(vec, data)) {
+        vec_raw_move(vec->data, data, count * vec->elem_size);
+        vec->length = count;
+        return 0;
+    }
+
+    if (vec_reserve(vec, count) != 0) {
+        return -1;
+    }
+
+    vec_raw_copy(vec->data, data, count * vec->elem_size);
+    vec->length = count;
+    return 0;
+}
+
+int vec_clone(Vec *dest, const Vec *src)
 {
     if (dest == NULL || src == NULL || dest->elem_size != src->elem_size) {
         return -1;
@@ -197,21 +225,11 @@ int vec_copy(Vec *dest, const Vec *src)
     if (dest == src) {
         return 0;
     }
-    if (src->length == 0) {
-        dest->length = 0;
-        return 0;
-    }
 
-    if (vec_reserve(dest, src->length) != 0) {
-        return -1;
-    }
-
-    vec_raw_copy(dest->data, src->data, src->length * src->elem_size);
-    dest->length = src->length;
-    return 0;
+    return vec_assign(dest, src->data, src->length);
 }
 
-void *vec_at(const Vec *vec, size_t index)
+void *vec_at(Vec *vec, size_t index)
 {
     if (vec == NULL || index >= vec->length) {
         return NULL;
@@ -219,9 +237,17 @@ void *vec_at(const Vec *vec, size_t index)
     return (unsigned char *)vec->data + index * vec->elem_size;
 }
 
+const void *vec_at_const(const Vec *vec, size_t index)
+{
+    if (vec == NULL || index >= vec->length) {
+        return NULL;
+    }
+    return (const unsigned char *)vec->data + index * vec->elem_size;
+}
+
 int vec_get(const Vec *vec, size_t index, void *out)
 {
-    const void *slot = vec_at(vec, index);
+    const void *slot = vec_at_const(vec, index);
 
     if (slot == NULL || out == NULL) {
         return -1;
@@ -377,43 +403,69 @@ size_t vec_find(const Vec *vec, const void *element,
     return VEC_NPOS;
 }
 
+/*
+ * Three-way (Dutch national flag) partitioning: elements equal to the pivot
+ * are grouped in the middle and excluded from both recursive calls. Without
+ * this, a run of duplicate keys degenerates a two-way partition to O(n^2).
+ */
 static void vec_quicksort(unsigned char *base, size_t low, size_t high,
                           size_t elem_size,
-                          int (*compare)(const void *a, const void *b))
+                          int (*compare)(const void *a, const void *b),
+                          unsigned char *pivot)
 {
-    size_t pivot_index;
-    size_t store_index;
-    size_t i;
+    size_t mid;
+    size_t lt, gt, i;
 
     if (low >= high) {
         return;
     }
 
-    pivot_index = low + (high - low) / 2;
-    vec_raw_swap(base + pivot_index * elem_size, base + high * elem_size, elem_size);
+    mid = low + (high - low) / 2;
+    vec_raw_copy(pivot, base + mid * elem_size, elem_size);
 
-    store_index = low;
-    for (i = low; i < high; ++i) {
-        if (compare(base + i * elem_size, base + high * elem_size) < 0) {
-            vec_raw_swap(base + i * elem_size, base + store_index * elem_size, elem_size);
-            ++store_index;
+    lt = low;
+    gt = high;
+    i = low;
+
+    while (i <= gt) {
+        int cmp = compare(base + i * elem_size, pivot);
+
+        if (cmp < 0) {
+            vec_raw_swap(base + lt * elem_size, base + i * elem_size, elem_size);
+            ++lt;
+            ++i;
+        } else if (cmp > 0) {
+            vec_raw_swap(base + i * elem_size, base + gt * elem_size, elem_size);
+            if (gt == low) {
+                break;
+            }
+            --gt;
+        } else {
+            ++i;
         }
     }
-    vec_raw_swap(base + store_index * elem_size, base + high * elem_size, elem_size);
 
-    if (store_index > low) {
-        vec_quicksort(base, low, store_index - 1, elem_size, compare);
+    if (lt > low) {
+        vec_quicksort(base, low, lt - 1, elem_size, compare, pivot);
     }
-    if (store_index < high) {
-        vec_quicksort(base, store_index + 1, high, elem_size, compare);
+    if (gt < high) {
+        vec_quicksort(base, gt + 1, high, elem_size, compare, pivot);
     }
 }
 
 void vec_sort(Vec *vec, int (*compare)(const void *a, const void *b))
 {
+    unsigned char *pivot;
+
     if (vec == NULL || compare == NULL || vec->length < 2) {
         return;
     }
 
-    vec_quicksort(vec->data, 0, vec->length - 1, vec->elem_size, compare);
+    pivot = malloc(vec->elem_size);
+    if (pivot == NULL) {
+        return;
+    }
+
+    vec_quicksort(vec->data, 0, vec->length - 1, vec->elem_size, compare, pivot);
+    free(pivot);
 }

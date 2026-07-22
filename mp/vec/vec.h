@@ -19,9 +19,11 @@ void vec_clear(Vec *vec);
 int vec_reserve(Vec *vec, size_t minimum_capacity);
 int vec_shrink_to_fit(Vec *vec);
 
-int vec_copy(Vec *dest, const Vec *src);
+int vec_assign(Vec *vec, const void *data, size_t count);
+int vec_clone(Vec *dest, const Vec *src);
 
-void *vec_at(const Vec *vec, size_t index);
+void *vec_at(Vec *vec, size_t index);
+const void *vec_at_const(const Vec *vec, size_t index);
 int vec_get(const Vec *vec, size_t index, void *out);
 int vec_set(Vec *vec, size_t index, const void *element);
 
