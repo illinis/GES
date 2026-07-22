@@ -30,6 +30,9 @@ a.out
 *.ilk
 *.dSYM/
 
+# mp/ test binary
+/mp/mp_tests
+
 # Static analyzers / sanitizers
 *.gcda
 *.gcno
