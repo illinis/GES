@@ -3,6 +3,7 @@
  * Build and run with `make run` from this directory.
  */
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -10,6 +11,7 @@
 #include "str/str.h"
 #include "vec/vec.h"
 #include "dll/dll.h"
+#include "stack/stack.h"
 
 static int g_failures = 0;
 static int g_checks = 0;
@@ -561,6 +563,186 @@ static void test_dll_destroy_rejects_further_use(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* stack                                                               */
+/* ------------------------------------------------------------------ */
+
+static void test_stack_init_and_invalid_arguments(void)
+{
+    Stack stack;
+    int value = 42;
+
+    CHECK(stack_init(NULL, sizeof(int)) == -1);
+    CHECK(stack_init(&stack, 0) == -1);
+
+    CHECK(stack_init(&stack, sizeof(int)) == 0);
+    CHECK(stack.data == NULL);
+    CHECK(stack.size == 0);
+    CHECK(stack.capacity == 0);
+    CHECK(stack.element_size == sizeof(int));
+    CHECK(stack_is_empty(&stack) == 1);
+
+    CHECK(stack_push(NULL, &value) == -1);
+    CHECK(stack_push(&stack, NULL) == -1);
+    CHECK(stack_pop(NULL, &value) == -1);
+    CHECK(stack_peek(NULL, &value) == -1);
+    CHECK(stack_is_empty(NULL) == -1);
+    CHECK(stack_clear(NULL) == -1);
+    CHECK(stack_destroy(NULL) == -1);
+
+    CHECK(stack_destroy(&stack) == 0);
+}
+
+static void test_stack_lifo_growth(void)
+{
+    Stack stack;
+    int value;
+    int out = -1;
+
+    CHECK(stack_init(&stack, sizeof(int)) == 0);
+
+    /* Enough pushes to exercise repeated capacity doubling. */
+    for (value = 0; value < 128; ++value) {
+        CHECK(stack_push(&stack, &value) == 0);
+    }
+    CHECK(stack.size == 128);
+    CHECK(stack.capacity >= stack.size);
+    CHECK(stack_is_empty(&stack) == 0);
+
+    for (value = 127; value >= 0; --value) {
+        CHECK(stack_peek(&stack, &out) == 0);
+        CHECK(out == value);
+        CHECK(stack.size == (size_t)value + 1);
+
+        CHECK(stack_pop(&stack, &out) == 0);
+        CHECK(out == value);
+        CHECK(stack.size == (size_t)value);
+    }
+
+    CHECK(stack_is_empty(&stack) == 1);
+    CHECK(stack_peek(&stack, &out) == -1);
+    CHECK(stack_pop(&stack, &out) == -1);
+
+    CHECK(stack_destroy(&stack) == 0);
+}
+
+static void test_stack_peek_and_discard(void)
+{
+    Stack stack;
+    int first = 10;
+    int second = 20;
+    int out = 0;
+
+    stack_init(&stack, sizeof(int));
+    stack_push(&stack, &first);
+    stack_push(&stack, &second);
+
+    /* Peeking must leave the top element and the size unchanged. */
+    CHECK(stack_peek(&stack, &out) == 0);
+    CHECK(out == second);
+    CHECK(stack.size == 2);
+
+    /* A NULL output intentionally discards the top element. */
+    CHECK(stack_pop(&stack, NULL) == 0);
+    CHECK(stack.size == 1);
+    CHECK(stack_peek(&stack, &out) == 0);
+    CHECK(out == first);
+
+    stack_destroy(&stack);
+}
+
+typedef struct {
+    int id;
+    char label[8];
+} StackRecord;
+
+static void test_stack_generic_element_copy(void)
+{
+    Stack stack;
+    StackRecord record = {7, "alpha"};
+    StackRecord out;
+
+    stack_init(&stack, sizeof(StackRecord));
+    CHECK(stack_push(&stack, &record) == 0);
+
+    /* The stack stores a bytewise copy, independent of this object. */
+    record.id = 99;
+    strcpy(record.label, "changed");
+
+    CHECK(stack_pop(&stack, &out) == 0);
+    CHECK(out.id == 7);
+    CHECK(strcmp(out.label, "alpha") == 0);
+
+    stack_destroy(&stack);
+}
+
+static void test_stack_clear_and_reuse(void)
+{
+    Stack stack;
+    int value;
+    int out;
+
+    stack_init(&stack, sizeof(int));
+    for (value = 0; value < 3; ++value) {
+        stack_push(&stack, &value);
+    }
+
+    CHECK(stack_clear(&stack) == 0);
+    CHECK(stack.data == NULL);
+    CHECK(stack.size == 0);
+    CHECK(stack.capacity == 0);
+    CHECK(stack.element_size == sizeof(int));
+    CHECK(stack_is_empty(&stack) == 1);
+
+    /* Clear keeps the type information, so the stack remains reusable. */
+    value = 42;
+    CHECK(stack_push(&stack, &value) == 0);
+    CHECK(stack_pop(&stack, &out) == 0);
+    CHECK(out == 42);
+
+    stack_destroy(&stack);
+}
+
+static void test_stack_destroy_rejects_further_use(void)
+{
+    Stack stack;
+    int value = 1;
+    int out;
+
+    stack_init(&stack, sizeof(int));
+    stack_push(&stack, &value);
+
+    CHECK(stack_destroy(&stack) == 0);
+    CHECK(stack.data == NULL);
+    CHECK(stack.size == 0);
+    CHECK(stack.capacity == 0);
+    CHECK(stack.element_size == 0);
+
+    CHECK(stack_push(&stack, &value) == -1);
+    CHECK(stack_pop(&stack, &out) == -1);
+    CHECK(stack_peek(&stack, &out) == -1);
+}
+
+static void test_stack_capacity_overflow_guards(void)
+{
+    Stack stack;
+    int value = 1;
+
+    /* Construct boundary states directly to reach each guard without
+     * attempting an impossibly large allocation. */
+    stack.data = NULL;
+    stack.size = SIZE_MAX / 2 + 1;
+    stack.capacity = stack.size;
+    stack.element_size = 1;
+    CHECK(stack_push(&stack, &value) == -1);
+
+    stack.data = NULL;
+    stack.size = 1;
+    stack.capacity = 1;
+    stack.element_size = SIZE_MAX;
+    CHECK(stack_push(&stack, &value) == -1);
+}
+
+/* ------------------------------------------------------------------ */
 
 int main(void)
 {
@@ -584,6 +766,14 @@ int main(void)
     test_dll_find_all();
     test_dll_clear_and_reuse();
     test_dll_destroy_rejects_further_use();
+
+    test_stack_init_and_invalid_arguments();
+    test_stack_lifo_growth();
+    test_stack_peek_and_discard();
+    test_stack_generic_element_copy();
+    test_stack_clear_and_reuse();
+    test_stack_destroy_rejects_further_use();
+    test_stack_capacity_overflow_guards();
 
     if (g_failures == 0) {
         printf("all %d checks passed\n", g_checks);
