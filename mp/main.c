@@ -763,8 +763,7 @@ static void test_queue_init_and_invalid_arguments(void)
     CHECK(queue.length == 0);
     CHECK(queue.capacity == 4);
     CHECK(queue.element_size == sizeof(int));
-    CHECK(queue_get_length(&queue) == 0);
-    CHECK(queue_get_capacity(&queue) == 4);
+    
     CHECK(queue_is_empty(&queue) == 1);
     CHECK(queue_is_full(&queue) == 0);
 
@@ -773,8 +772,6 @@ static void test_queue_init_and_invalid_arguments(void)
     CHECK(queue_dequeue(NULL, &value) == -1);
     CHECK(queue_peek(NULL, &value) == -1);
     CHECK(queue_peek(&queue, NULL) == -1);
-    CHECK(queue_get_length(NULL) == 0);
-    CHECK(queue_get_capacity(NULL) == 0);
     CHECK(queue_is_empty(NULL) == -1);
     CHECK(queue_is_full(NULL) == -1);
     CHECK(queue_clear(NULL) == -1);
@@ -800,11 +797,9 @@ static void test_queue_fifo_wraparound(void)
     }
     CHECK(queue_is_full(&queue) == 1);
     CHECK(queue_enqueue(&queue, &extra) == -1);
-    CHECK(queue_get_length(&queue) == 4);
 
     CHECK(queue_peek(read_only_queue, &out) == 0);
     CHECK(out == 10);
-    CHECK(queue_get_length(&queue) == 4);
 
     CHECK(queue_dequeue(&queue, &out) == 0);
     CHECK(out == 10);

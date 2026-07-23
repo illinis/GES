@@ -95,16 +95,6 @@ int queue_peek(const Queue *q, void *out){
     return 0;
 }
 
-size_t queue_get_length(const Queue *q){
-    if (q == NULL) return 0;
-    return q->length;
-}
-
-size_t queue_get_capacity(const Queue *q){
-    if (q == NULL) return 0;
-    return q->capacity;
-}
-
 int queue_is_empty(const Queue *q){
     if (!queue_is_valid(q)) return -1;
     return q->length == 0;
