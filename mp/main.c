@@ -12,6 +12,7 @@
 #include "vec/vec.h"
 #include "dll/dll.h"
 #include "stack/stack.h"
+#include "queue/queue.h"
 
 static int g_failures = 0;
 static int g_checks = 0;
@@ -743,6 +744,216 @@ static void test_stack_capacity_overflow_guards(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* queue                                                               */
+/* ------------------------------------------------------------------ */
+
+static void test_queue_init_and_invalid_arguments(void)
+{
+    Queue queue;
+    int value = 42;
+
+    CHECK(queue_init(NULL, 4, sizeof(int)) == -1);
+    CHECK(queue_init(&queue, 0, sizeof(int)) == -1);
+    CHECK(queue_init(&queue, 4, 0) == -1);
+    CHECK(queue_init(&queue, SIZE_MAX, sizeof(int)) == -1);
+
+    CHECK(queue_init(&queue, 4, sizeof(int)) == 0);
+    CHECK(queue.data != NULL);
+    CHECK(queue.front == 0);
+    CHECK(queue.length == 0);
+    CHECK(queue.capacity == 4);
+    CHECK(queue.element_size == sizeof(int));
+    CHECK(queue_get_length(&queue) == 0);
+    CHECK(queue_get_capacity(&queue) == 4);
+    CHECK(queue_is_empty(&queue) == 1);
+    CHECK(queue_is_full(&queue) == 0);
+
+    CHECK(queue_enqueue(NULL, &value) == -1);
+    CHECK(queue_enqueue(&queue, NULL) == -1);
+    CHECK(queue_dequeue(NULL, &value) == -1);
+    CHECK(queue_peek(NULL, &value) == -1);
+    CHECK(queue_peek(&queue, NULL) == -1);
+    CHECK(queue_get_length(NULL) == 0);
+    CHECK(queue_get_capacity(NULL) == 0);
+    CHECK(queue_is_empty(NULL) == -1);
+    CHECK(queue_is_full(NULL) == -1);
+    CHECK(queue_clear(NULL) == -1);
+    CHECK(queue_destroy(NULL) == -1);
+
+    CHECK(queue_destroy(&queue) == 0);
+}
+
+static void test_queue_fifo_wraparound(void)
+{
+    Queue queue;
+    const Queue *read_only_queue = &queue;
+    int initial[] = {10, 20, 30, 40};
+    int wrapped[] = {50, 60};
+    int expected[] = {30, 40, 50, 60};
+    int extra = 70;
+    int out = 0;
+    size_t i;
+
+    queue_init(&queue, 4, sizeof(int));
+    for (i = 0; i < 4; ++i) {
+        CHECK(queue_enqueue(&queue, &initial[i]) == 0);
+    }
+    CHECK(queue_is_full(&queue) == 1);
+    CHECK(queue_enqueue(&queue, &extra) == -1);
+    CHECK(queue_get_length(&queue) == 4);
+
+    CHECK(queue_peek(read_only_queue, &out) == 0);
+    CHECK(out == 10);
+    CHECK(queue_get_length(&queue) == 4);
+
+    CHECK(queue_dequeue(&queue, &out) == 0);
+    CHECK(out == 10);
+    CHECK(queue_dequeue(&queue, &out) == 0);
+    CHECK(out == 20);
+
+    /* These values occupy slots at the beginning of the circular buffer. */
+    CHECK(queue_enqueue(&queue, &wrapped[0]) == 0);
+    CHECK(queue_enqueue(&queue, &wrapped[1]) == 0);
+
+    for (i = 0; i < 4; ++i) {
+        CHECK(queue_dequeue(&queue, &out) == 0);
+        CHECK(out == expected[i]);
+    }
+    CHECK(queue_is_empty(&queue) == 1);
+    CHECK(queue_dequeue(&queue, &out) == -1);
+    CHECK(queue_peek(&queue, &out) == -1);
+
+    queue_destroy(&queue);
+}
+
+static void test_queue_discard_and_generic_element_copy(void)
+{
+    typedef struct {
+        int id;
+        char label[8];
+    } QueueRecord;
+
+    Queue queue;
+    QueueRecord record = {7, "alpha"};
+    QueueRecord out;
+
+    queue_init(&queue, 2, sizeof(QueueRecord));
+    CHECK(queue_enqueue(&queue, &record) == 0);
+
+    record.id = 99;
+    strcpy(record.label, "changed");
+    CHECK(queue_peek(&queue, &out) == 0);
+    CHECK(out.id == 7);
+    CHECK(strcmp(out.label, "alpha") == 0);
+
+    /* A NULL output intentionally removes and discards the front element. */
+    CHECK(queue_dequeue(&queue, NULL) == 0);
+    CHECK(queue_is_empty(&queue) == 1);
+
+    queue_destroy(&queue);
+}
+
+static void test_queue_clear_and_reuse(void)
+{
+    Queue queue;
+    unsigned char *allocation;
+    int value;
+    int out;
+
+    queue_init(&queue, 4, sizeof(int));
+    allocation = queue.data;
+    for (value = 0; value < 3; ++value) {
+        queue_enqueue(&queue, &value);
+    }
+
+    CHECK(queue_clear(&queue) == 0);
+    CHECK(queue.data == allocation);
+    CHECK(queue.front == 0);
+    CHECK(queue.length == 0);
+    CHECK(queue.capacity == 4);
+    CHECK(queue.element_size == sizeof(int));
+
+    value = 42;
+    CHECK(queue_enqueue(&queue, &value) == 0);
+    CHECK(queue_dequeue(&queue, &out) == 0);
+    CHECK(out == 42);
+
+    queue_destroy(&queue);
+}
+
+static void test_queue_reserve_preserves_wrapped_order(void)
+{
+    Queue queue;
+    unsigned char *old_data;
+    int value;
+    int out;
+
+    queue_init(&queue, 5, sizeof(int));
+    for (value = 0; value < 5; ++value) {
+        queue_enqueue(&queue, &value);
+    }
+
+    queue_dequeue(&queue, &out);
+    queue_dequeue(&queue, &out);
+    value = 5;
+    queue_enqueue(&queue, &value);
+    value = 6;
+    queue_enqueue(&queue, &value);
+
+    /* The logical order is now split physically: [2,3,4] then [5,6]. */
+    CHECK(queue.front == 2);
+    CHECK(queue.length == 5);
+    CHECK(queue_reserve(&queue, 8) == 0);
+    CHECK(queue.front == 0);
+    CHECK(queue.length == 5);
+    CHECK(queue.capacity == 8);
+
+    /* Reserving an already sufficient capacity is a successful no-op. */
+    CHECK(queue_reserve(&queue, 8) == 0);
+    CHECK(queue_reserve(&queue, 4) == 0);
+
+    /* A failed overflow check must leave the original queue untouched. */
+    old_data = queue.data;
+    CHECK(queue_reserve(&queue, SIZE_MAX) == -1);
+    CHECK(queue.data == old_data);
+    CHECK(queue.front == 0);
+    CHECK(queue.length == 5);
+    CHECK(queue.capacity == 8);
+
+    for (value = 2; value <= 6; ++value) {
+        CHECK(queue_dequeue(&queue, &out) == 0);
+        CHECK(out == value);
+    }
+
+    queue_destroy(&queue);
+}
+
+static void test_queue_destroy_rejects_further_use(void)
+{
+    Queue queue;
+    int value = 1;
+    int out;
+
+    queue_init(&queue, 2, sizeof(int));
+    queue_enqueue(&queue, &value);
+
+    CHECK(queue_destroy(&queue) == 0);
+    CHECK(queue.data == NULL);
+    CHECK(queue.front == 0);
+    CHECK(queue.length == 0);
+    CHECK(queue.capacity == 0);
+    CHECK(queue.element_size == 0);
+
+    CHECK(queue_enqueue(&queue, &value) == -1);
+    CHECK(queue_dequeue(&queue, &out) == -1);
+    CHECK(queue_peek(&queue, &out) == -1);
+    CHECK(queue_clear(&queue) == -1);
+    CHECK(queue_reserve(&queue, 4) == -1);
+    CHECK(queue_is_empty(&queue) == -1);
+    CHECK(queue_is_full(&queue) == -1);
+}
+
+/* ------------------------------------------------------------------ */
 
 int main(void)
 {
@@ -774,6 +985,13 @@ int main(void)
     test_stack_clear_and_reuse();
     test_stack_destroy_rejects_further_use();
     test_stack_capacity_overflow_guards();
+
+    test_queue_init_and_invalid_arguments();
+    test_queue_fifo_wraparound();
+    test_queue_discard_and_generic_element_copy();
+    test_queue_clear_and_reuse();
+    test_queue_reserve_preserves_wrapped_order();
+    test_queue_destroy_rejects_further_use();
 
     if (g_failures == 0) {
         printf("all %d checks passed\n", g_checks);
