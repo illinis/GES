@@ -9,6 +9,7 @@
 
 #include "str/str.h"
 #include "vec/vec.h"
+#include "dll/dll.h"
 
 static int g_failures = 0;
 static int g_checks = 0;
@@ -396,6 +397,170 @@ static void test_vec_does_not_own_referenced_resources(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* dll                                                                  */
+/* ------------------------------------------------------------------ */
+
+static void test_dll_push_pop_front_back(void)
+{
+    DLL list;
+    int value;
+    int out;
+
+    CHECK(dll_init(&list, sizeof(int)) == 0);
+
+    for (value = 0; value < 5; ++value) {
+        CHECK(dll_push_back(&list, &value) == 0);
+    }
+    CHECK(list.size == 5);
+    CHECK(*(int *)list.head->data == 0);
+    CHECK(*(int *)list.tail->data == 4);
+
+    value = -1;
+    CHECK(dll_push_front(&list, &value) == 0);
+    CHECK(list.size == 6);
+    CHECK(*(int *)list.head->data == -1);
+
+    CHECK(dll_pop_front(&list, &out) == 0);
+    CHECK(out == -1);
+    CHECK(list.size == 5);
+
+    CHECK(dll_pop_back(&list, &out) == 0);
+    CHECK(out == 4);
+    CHECK(list.size == 4);
+    CHECK(*(int *)list.tail->data == 3);
+
+    dll_destroy(&list);
+}
+
+static void test_dll_insert_erase_find(void)
+{
+    DLL list;
+    DLLNode *node;
+    int values[] = {10, 20, 30, 40};
+    int inserted = 15;
+    int missing = 99;
+    int out;
+    size_t i;
+    size_t found;
+
+    dll_init(&list, sizeof(int));
+    for (i = 0; i < 4; ++i) {
+        dll_push_back(&list, &values[i]);
+    }
+
+    CHECK(dll_insert(&list, 1, &inserted) == 0);
+    CHECK(list.size == 5);
+
+    found = dll_find(&list, &inserted, cmp_int);
+    CHECK(found == 1);
+    CHECK(dll_find(&list, &values[3], cmp_int) == 4);
+    CHECK(dll_find(&list, &missing, cmp_int) == DLL_NPOS);
+
+    CHECK(dll_erase(&list, 1, &out) == 0);
+    CHECK(out == 15);
+    CHECK(list.size == 4);
+
+    /* Walk forward then backward to confirm prev/next links stay
+     * consistent after the insert/erase pair. */
+    node = list.head;
+    for (i = 0; i < 4; ++i) {
+        CHECK(*(int *)node->data == values[i]);
+        if (i < 3) node = node->next;
+    }
+    for (i = 4; i-- > 0; ) {
+        CHECK(*(int *)node->data == values[i]);
+        if (i > 0) node = node->prev;
+    }
+
+    dll_destroy(&list);
+}
+
+static void test_dll_find_all(void)
+{
+    DLL list;
+    int values[] = {2, 1, 2, 3, 2};
+    int target = 2;
+    size_t all_indices[3];
+    size_t some_indices[2];
+    size_t i;
+    size_t count;
+
+    dll_init(&list, sizeof(int));
+    for (i = 0; i < 5; ++i) {
+        dll_push_back(&list, &values[i]);
+    }
+
+    /* Buffer large enough for every match. */
+    count = dll_find_all(&list, &target, cmp_int, all_indices, 3);
+    CHECK(count == 3);
+    CHECK(all_indices[0] == 0);
+    CHECK(all_indices[1] == 2);
+    CHECK(all_indices[2] == 4);
+
+    /* Undersized buffer: the true match count is still reported, but
+     * only as many indices as fit are written. */
+    count = dll_find_all(&list, &target, cmp_int, some_indices, 2);
+    CHECK(count == 3);
+    CHECK(some_indices[0] == 0);
+    CHECK(some_indices[1] == 2);
+
+    dll_destroy(&list);
+}
+
+static void test_dll_clear_and_reuse(void)
+{
+    DLL list;
+    int value;
+    int out;
+
+    dll_init(&list, sizeof(int));
+    for (value = 0; value < 3; ++value) {
+        dll_push_back(&list, &value);
+    }
+    CHECK(list.size == 3);
+
+    dll_clear(&list);
+    CHECK(list.size == 0);
+    CHECK(list.head == NULL);
+    CHECK(list.tail == NULL);
+
+    /* A cleared (but not destroyed) list keeps its element size and
+     * must still accept new elements. */
+    value = 7;
+    CHECK(dll_push_back(&list, &value) == 0);
+    CHECK(list.size == 1);
+    CHECK(dll_pop_front(&list, &out) == 0);
+    CHECK(out == 7);
+
+    dll_destroy(&list);
+}
+
+static void test_dll_destroy_rejects_further_use(void)
+{
+    DLL list;
+    int value;
+
+    dll_init(&list, sizeof(int));
+    value = 1; dll_push_back(&list, &value);
+    value = 2; dll_push_back(&list, &value);
+
+    dll_destroy(&list);
+    CHECK(list.head == NULL);
+    CHECK(list.tail == NULL);
+    CHECK(list.size == 0);
+    CHECK(list.elem_size == 0);
+
+    /* A destroyed list must reject every mutating call instead of
+     * silently reviving itself. */
+    value = 99;
+    CHECK(dll_push_back(&list, &value) == -1);
+    CHECK(dll_push_front(&list, &value) == -1);
+    CHECK(dll_insert(&list, 0, &value) == -1);
+    CHECK(list.size == 0);
+    CHECK(list.head == NULL);
+}
+
+/* ------------------------------------------------------------------ */
 
 int main(void)
 {
@@ -413,6 +578,12 @@ int main(void)
     test_vec_sort_duplicates();
     test_vec_clone_assign();
     test_vec_does_not_own_referenced_resources();
+
+    test_dll_push_pop_front_back();
+    test_dll_insert_erase_find();
+    test_dll_find_all();
+    test_dll_clear_and_reuse();
+    test_dll_destroy_rejects_further_use();
 
     if (g_failures == 0) {
         printf("all %d checks passed\n", g_checks);
