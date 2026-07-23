@@ -13,6 +13,7 @@
 #include "dll/dll.h"
 #include "stack/stack.h"
 #include "queue/queue.h"
+#include "deque/deque.h"
 
 static int g_failures = 0;
 static int g_checks = 0;
@@ -949,6 +950,251 @@ static void test_queue_destroy_rejects_further_use(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* deque                                                               */
+/* ------------------------------------------------------------------ */
+
+static void test_deque_init_and_invalid_arguments(void)
+{
+    Deque deque;
+    int value = 42;
+
+    CHECK(deque_init(NULL, 4, sizeof(int)) == -1);
+    CHECK(deque_init(&deque, 0, sizeof(int)) == -1);
+    CHECK(deque_init(&deque, 4, 0) == -1);
+    CHECK(deque_init(&deque, SIZE_MAX, sizeof(int)) == -1);
+
+    CHECK(deque_init(&deque, 4, sizeof(int)) == 0);
+    CHECK(deque.data != NULL);
+    CHECK(deque.front == 0);
+    CHECK(deque.back == 0);
+    CHECK(deque.length == 0);
+    CHECK(deque.capacity == 4);
+    CHECK(deque.element_size == sizeof(int));
+    CHECK(deque_is_empty(&deque) == 1);
+    CHECK(deque_is_full(&deque) == 0);
+
+    CHECK(deque_push_back(NULL, &value) == -1);
+    CHECK(deque_push_front(NULL, &value) == -1);
+    CHECK(deque_push_back(&deque, NULL) == -1);
+    CHECK(deque_push_front(&deque, NULL) == -1);
+    CHECK(deque_pop_back(NULL, &value) == -1);
+    CHECK(deque_pop_front(NULL, &value) == -1);
+    CHECK(deque_peek_back(NULL, &value) == -1);
+    CHECK(deque_peek_front(NULL, &value) == -1);
+    CHECK(deque_peek_back(&deque, NULL) == -1);
+    CHECK(deque_peek_front(&deque, NULL) == -1);
+    CHECK(deque_is_empty(NULL) == -1);
+    CHECK(deque_is_full(NULL) == -1);
+    CHECK(deque_clear(NULL) == -1);
+    CHECK(deque_destroy(NULL) == -1);
+
+    CHECK(deque_destroy(&deque) == 0);
+}
+
+static void test_deque_operations_at_both_ends(void)
+{
+    Deque deque;
+    const Deque *read_only_deque = &deque;
+    int value;
+    int out = -1;
+
+    deque_init(&deque, 4, sizeof(int));
+
+    value = 2;
+    CHECK(deque_push_back(&deque, &value) == 0);
+    value = 1;
+    CHECK(deque_push_front(&deque, &value) == 0);
+    value = 3;
+    CHECK(deque_push_back(&deque, &value) == 0);
+    value = 0;
+    CHECK(deque_push_front(&deque, &value) == 0);
+
+    CHECK(deque.length == 4);
+    CHECK(deque_is_full(&deque) == 1);
+    CHECK(deque_peek_front(read_only_deque, &out) == 0);
+    CHECK(out == 0);
+    CHECK(deque_peek_back(read_only_deque, &out) == 0);
+    CHECK(out == 3);
+    CHECK(deque.length == 4);
+
+    value = 99;
+    CHECK(deque_push_front(&deque, &value) == -1);
+    CHECK(deque_push_back(&deque, &value) == -1);
+
+    CHECK(deque_pop_front(&deque, &out) == 0);
+    CHECK(out == 0);
+    CHECK(deque_pop_back(&deque, &out) == 0);
+    CHECK(out == 3);
+    CHECK(deque_pop_front(&deque, &out) == 0);
+    CHECK(out == 1);
+    CHECK(deque_pop_back(&deque, &out) == 0);
+    CHECK(out == 2);
+
+    CHECK(deque_is_empty(&deque) == 1);
+    CHECK(deque_pop_front(&deque, &out) == -1);
+    CHECK(deque_pop_back(&deque, &out) == -1);
+    CHECK(deque_peek_front(&deque, &out) == -1);
+    CHECK(deque_peek_back(&deque, &out) == -1);
+
+    deque_destroy(&deque);
+}
+
+static void test_deque_discard_and_generic_element_copy(void)
+{
+    typedef struct {
+        int id;
+        char label[8];
+    } DequeRecord;
+
+    Deque deque;
+    DequeRecord record = {7, "alpha"};
+    DequeRecord out;
+
+    deque_init(&deque, 2, sizeof(DequeRecord));
+    CHECK(deque_push_front(&deque, &record) == 0);
+
+    record.id = 99;
+    strcpy(record.label, "changed");
+    CHECK(deque_peek_front(&deque, &out) == 0);
+    CHECK(out.id == 7);
+    CHECK(strcmp(out.label, "alpha") == 0);
+
+    /* NULL output pointers intentionally discard elements. */
+    CHECK(deque_pop_back(&deque, NULL) == 0);
+    CHECK(deque_is_empty(&deque) == 1);
+
+    deque_destroy(&deque);
+}
+
+static void test_deque_clear_and_reuse(void)
+{
+    Deque deque;
+    unsigned char *allocation;
+    int value;
+    int out;
+
+    deque_init(&deque, 4, sizeof(int));
+    allocation = deque.data;
+
+    value = 1;
+    deque_push_front(&deque, &value);
+    value = 2;
+    deque_push_back(&deque, &value);
+
+    CHECK(deque_clear(&deque) == 0);
+    CHECK(deque.data == allocation);
+    CHECK(deque.front == 0);
+    CHECK(deque.back == 0);
+    CHECK(deque.length == 0);
+    CHECK(deque.capacity == 4);
+    CHECK(deque.element_size == sizeof(int));
+
+    value = 42;
+    CHECK(deque_push_front(&deque, &value) == 0);
+    CHECK(deque_pop_back(&deque, &out) == 0);
+    CHECK(out == 42);
+
+    deque_destroy(&deque);
+}
+
+static void test_deque_reserve_preserves_wrapped_order(void)
+{
+    Deque deque;
+    unsigned char *old_data;
+    int value;
+    int out;
+
+    /* Growing an empty deque must keep both cursors at the first slot. */
+    deque_init(&deque, 3, sizeof(int));
+    CHECK(deque_reserve(&deque, 6) == 0);
+    CHECK(deque.front == 0);
+    CHECK(deque.back == 0);
+    CHECK(deque.length == 0);
+    CHECK(deque.capacity == 6);
+    deque_destroy(&deque);
+
+    deque_init(&deque, 5, sizeof(int));
+    for (value = 0; value < 5; ++value) {
+        deque_push_back(&deque, &value);
+    }
+    deque_pop_front(&deque, &out);
+    deque_pop_front(&deque, &out);
+    value = 5;
+    deque_push_back(&deque, &value);
+    value = 6;
+    deque_push_back(&deque, &value);
+
+    /* The logical order is split physically: [2,3,4] then [5,6]. */
+    CHECK(deque.front == 2);
+    CHECK(deque.back == 2);
+    CHECK(deque.length == 5);
+    CHECK(deque_reserve(&deque, 8) == 0);
+    CHECK(deque.front == 0);
+    CHECK(deque.back == 5);
+    CHECK(deque.length == 5);
+    CHECK(deque.capacity == 8);
+
+    CHECK(deque_reserve(&deque, 8) == 0);
+    CHECK(deque_reserve(&deque, 4) == 0);
+
+    /* Overflow failure leaves the existing allocation and state untouched. */
+    old_data = deque.data;
+    CHECK(deque_reserve(&deque, SIZE_MAX) == -1);
+    CHECK(deque.data == old_data);
+    CHECK(deque.front == 0);
+    CHECK(deque.back == 5);
+    CHECK(deque.length == 5);
+    CHECK(deque.capacity == 8);
+
+    value = 1;
+    CHECK(deque_push_front(&deque, &value) == 0);
+    value = 7;
+    CHECK(deque_push_back(&deque, &value) == 0);
+
+    for (value = 1; value <= 7; ++value) {
+        CHECK(deque_pop_front(&deque, &out) == 0);
+        CHECK(out == value);
+    }
+
+    deque_destroy(&deque);
+}
+
+static void test_deque_destroy_and_invariant_validation(void)
+{
+    Deque deque;
+    int value = 1;
+    int out;
+
+    deque_init(&deque, 2, sizeof(int));
+
+    /* Because the representation is public, reject inconsistent cursors. */
+    deque.back = 1;
+    CHECK(deque_push_back(&deque, &value) == -1);
+    CHECK(deque_is_empty(&deque) == -1);
+    deque.back = 0;
+
+    deque_push_back(&deque, &value);
+    CHECK(deque_destroy(&deque) == 0);
+    CHECK(deque.data == NULL);
+    CHECK(deque.front == 0);
+    CHECK(deque.back == 0);
+    CHECK(deque.length == 0);
+    CHECK(deque.capacity == 0);
+    CHECK(deque.element_size == 0);
+
+    CHECK(deque_push_back(&deque, &value) == -1);
+    CHECK(deque_push_front(&deque, &value) == -1);
+    CHECK(deque_pop_back(&deque, &out) == -1);
+    CHECK(deque_pop_front(&deque, &out) == -1);
+    CHECK(deque_peek_back(&deque, &out) == -1);
+    CHECK(deque_peek_front(&deque, &out) == -1);
+    CHECK(deque_clear(&deque) == -1);
+    CHECK(deque_reserve(&deque, 4) == -1);
+    CHECK(deque_is_empty(&deque) == -1);
+    CHECK(deque_is_full(&deque) == -1);
+}
+
+/* ------------------------------------------------------------------ */
 
 int main(void)
 {
@@ -987,6 +1233,13 @@ int main(void)
     test_queue_clear_and_reuse();
     test_queue_reserve_preserves_wrapped_order();
     test_queue_destroy_rejects_further_use();
+
+    test_deque_init_and_invalid_arguments();
+    test_deque_operations_at_both_ends();
+    test_deque_discard_and_generic_element_copy();
+    test_deque_clear_and_reuse();
+    test_deque_reserve_preserves_wrapped_order();
+    test_deque_destroy_and_invariant_validation();
 
     if (g_failures == 0) {
         printf("all %d checks passed\n", g_checks);
